@@ -6,10 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import CameraCapture from '@/components/profile/CameraCapture'
-import {
-  CheckCircle, Clock, AlertCircle,
-  Loader2, User, Camera, FileText,
-} from 'lucide-react'
+import { CheckCircle, Clock, AlertCircle, Loader2, User, Camera, FileText, } from 'lucide-react'
 import { toast } from 'sonner'
 
 const inputClass = 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 focus:border-blue-500 h-10 text-sm'
@@ -298,6 +295,7 @@ export default function ProfilePage() {
         ) : (
           <div className="space-y-3">
             <CameraCapture
+              autoStart
               onCapture={handleCameraCapture}
               onClose={() => setShowCamera(false)}
             />

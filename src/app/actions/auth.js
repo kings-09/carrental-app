@@ -6,18 +6,31 @@ import { redirect } from 'next/navigation'
 export async function signUp(formData) {
   const supabase = await createClient()
 
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: formData.email,
     password: formData.password,
     options: {
       data: {
         full_name: formData.fullName,
+        phone: formData.phone,
         role: 'customer',
       },
     },
   })
 
   if (error) return { error: error.message }
+
+  if (data?.user) {
+    await supabase
+      .from('profiles')
+      .update({
+        full_name: formData.fullName,
+        phone: formData.phone,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', data.user.id)
+  }
+
   return { success: 'Account created! You can now log in.' }
 }
 

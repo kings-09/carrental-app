@@ -1,23 +1,21 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import {
-  Camera, RefreshCw, CheckCircle, X,
-  AlertCircle, Loader2,
-} from 'lucide-react'
+import { Camera, RefreshCw, CheckCircle, X, AlertCircle, Loader2, } from 'lucide-react'
 
 export default function CameraCapture({ onCapture, onClose }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
-  const [phase, setPhase] = useState('idle') // idle | streaming | preview | done
-  const [error, setError] = useState('')
+  const [phase, setPhase] = useState('starting')
   const [capturedImage, setCapturedImage] = useState(null)
-  const [facingMode, setFacingMode] = useState('environment')
+  const [facingMode, setFacingMode] = useState('user')
+  const [error, setError] = useState('')
 
-  const startCamera = useCallback(async (facing = facingMode) => {
+  const startCamera = useCallback(async (facing = 'user') => {
     setError('')
+    setPhase('starting')
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop())
@@ -31,21 +29,47 @@ export default function CameraCapture({ onCapture, onClose }) {
         audio: false,
       })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
+
+      // Wait for videoRef to be available
+      const attachStream = () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play()
+              .then(() => setPhase('streaming'))
+              .catch((e) => {
+                setError('Could not play video: ' + e.message)
+                setPhase('error')
+              })
+          }
+        } else {
+          setTimeout(attachStream, 100)
+        }
       }
-      setPhase('streaming')
+      attachStream()
     } catch (err) {
+      setPhase('error')
       if (err.name === 'NotAllowedError') {
-        setError('Camera permission denied. Please allow camera access in your browser settings.')
+        setError('Camera permission denied. Please allow camera access in your browser settings and try again.')
       } else if (err.name === 'NotFoundError') {
         setError('No camera found on this device.')
+      } else if (err.name === 'NotReadableError') {
+        setError('Camera is in use by another app. Please close it and try again.')
       } else {
         setError('Could not access camera: ' + err.message)
       }
     }
-  }, [facingMode])
+  }, [])
+
+  // Auto-start camera when component mounts
+  useEffect(() => {
+    startCamera('user')
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop())
+      }
+    }
+  }, [])
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -70,11 +94,11 @@ export default function CameraCapture({ onCapture, onClose }) {
 
   const retake = useCallback(() => {
     setCapturedImage(null)
-    setPhase('idle')
-  }, [])
+    startCamera(facingMode)
+  }, [facingMode, startCamera])
 
   const flipCamera = useCallback(() => {
-    const next = facingMode === 'environment' ? 'user' : 'environment'
+    const next = facingMode === 'user' ? 'environment' : 'user'
     setFacingMode(next)
     startCamera(next)
   }, [facingMode, startCamera])
@@ -93,8 +117,7 @@ export default function CameraCapture({ onCapture, onClose }) {
 
   return (
     <div className="space-y-4">
-
-      {/* Instructions banner */}
+      {/* Instructions */}
       <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 flex items-start gap-3">
         <AlertCircle size={16} className="text-blue-400 shrink-0 mt-0.5" />
         <div className="text-xs text-slate-300 space-y-1">
@@ -112,62 +135,54 @@ export default function CameraCapture({ onCapture, onClose }) {
       <div className="relative bg-slate-800 rounded-xl overflow-hidden"
         style={{ aspectRatio: '16/9' }}>
 
-        {/* Idle state */}
-        {phase === 'idle' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-4">
-            <div className="w-16 h-16 bg-slate-700 rounded-full flex items-center justify-center">
-              <Camera size={28} className="text-slate-400" />
-            </div>
-            <div className="text-center">
-              <p className="text-white text-sm font-medium">Camera not started</p>
-              <p className="text-slate-400 text-xs mt-1">
-                Click below to open your camera
-              </p>
-            </div>
-            {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-xs text-red-400 text-center max-w-xs">
-                {error}
-              </div>
-            )}
+        {/* Starting / loading */}
+        {phase === 'starting' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <Loader2 size={28} className="animate-spin text-blue-400" />
+            <p className="text-slate-400 text-sm">Starting camera...</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {phase === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6">
+            <AlertCircle size={32} className="text-red-400" />
+            <p className="text-red-400 text-sm text-center">{error}</p>
             <Button
-              onClick={() => startCamera()}
+              onClick={() => startCamera(facingMode)}
               className="bg-blue-600 hover:bg-blue-700 text-white h-9 text-sm"
             >
-              <Camera size={14} className="mr-2" /> Open Camera
+              <Camera size={14} className="mr-2" /> Try Again
             </Button>
           </div>
         )}
 
-        {/* Live stream */}
+        {/* Live video — always rendered so ref is available */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={`w-full h-full object-cover ${phase === 'streaming' ? 'block' : 'hidden'}`}
+        />
+
+        {/* Guide overlay on streaming */}
         {phase === 'streaming' && (
           <>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
-            {/* Face + licence guide overlay */}
             <div className="absolute inset-0 pointer-events-none">
-              {/* Semi-transparent overlay with cutout guide */}
               <div className="absolute inset-0 border-2 border-blue-400/30 m-6 rounded-xl" />
               <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-1">
-                <p className="text-white text-xs text-center">
-                  Face + Licence in frame
-                </p>
+                <p className="text-white text-xs text-center">Face + Licence in frame</p>
               </div>
             </div>
             {/* Controls */}
             <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-4">
-              {/* Flip camera */}
               <button
                 onClick={flipCamera}
                 className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition-colors"
               >
                 <RefreshCw size={16} />
               </button>
-              {/* Capture button */}
               <button
                 onClick={capture}
                 className="w-16 h-16 rounded-full bg-white flex items-center justify-center hover:bg-slate-100 transition-colors shadow-lg"
@@ -176,7 +191,6 @@ export default function CameraCapture({ onCapture, onClose }) {
                   <Camera size={22} className="text-white" />
                 </div>
               </button>
-              {/* Close */}
               <button
                 onClick={handleClose}
                 className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition-colors"
@@ -190,32 +204,25 @@ export default function CameraCapture({ onCapture, onClose }) {
         {/* Preview captured photo */}
         {phase === 'preview' && capturedImage && (
           <>
-            <img
-              src={capturedImage}
-              alt="Captured"
-              className="w-full h-full object-cover"
-            />
+            <img src={capturedImage} alt="Captured"
+              className="w-full h-full object-cover" />
             <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-1">
               <p className="text-white text-xs">Review your photo</p>
             </div>
             <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-3">
-              <Button
-                onClick={retake}
-                className="bg-black/60 hover:bg-black/80 text-white border border-white/20 h-9 text-sm backdrop-blur-sm"
-              >
+              <Button onClick={retake}
+                className="bg-black/60 hover:bg-black/80 text-white border border-white/20 h-9 text-sm backdrop-blur-sm">
                 <RefreshCw size={13} className="mr-1.5" /> Retake
               </Button>
-              <Button
-                onClick={confirm}
-                className="bg-green-600 hover:bg-green-700 text-white h-9 text-sm"
-              >
+              <Button onClick={confirm}
+                className="bg-green-600 hover:bg-green-700 text-white h-9 text-sm">
                 <CheckCircle size={13} className="mr-1.5" /> Use This Photo
               </Button>
             </div>
           </>
         )}
 
-        {/* Done state */}
+        {/* Done */}
         {phase === 'done' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-green-500/10">
             <CheckCircle size={40} className="text-green-400" />
@@ -224,7 +231,6 @@ export default function CameraCapture({ onCapture, onClose }) {
         )}
       </div>
 
-      {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   )
